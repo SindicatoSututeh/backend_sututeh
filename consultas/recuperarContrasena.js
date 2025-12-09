@@ -14,14 +14,23 @@ const axios = require("axios");
 
 // Configurar nodemailer
 const transporter = nodemailer.createTransport({
-  host: "smtp.hostinger.com",
-  port: 465,
-  secure: true,
+  host: process.env.EMAIL_HOST || "smtp.hostinger.com",
+  port: Number(process.env.EMAIL_PORT || 587),
+  secure: false,                // usar TLS en 587 (no SSL)
+  requireTLS: true,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
+  connectionTimeout: 30_000,    // 30s
+  greetingTimeout: 30_000,
+  socketTimeout: 30_000,
+  tls: {
+    // evitar fallo por certificados en algunos hosts
+    rejectUnauthorized: false
+  }
 });
+
 
 // Cargar plantilla HTML para recuperación de contraseña
 const recoveryTemplatePath = path.join(__dirname, "../emailTemplates/passwordRecoveryTemplate.html");
