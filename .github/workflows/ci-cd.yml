@@ -2,9 +2,9 @@ name: Backend CI/CD - Módulo Gamificación
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
   pull_request:
-    branches: [ master ]
+    branches: [ main ]
 
 jobs:
   build-test-deploy:
@@ -83,7 +83,7 @@ jobs:
     
     # ========== DEPLOY ==========
     - name: 🎉 Despliegue automático
-      if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
         echo "✅ Todos los checks pasaron correctamente"
         echo "🚀 Render desplegará automáticamente"

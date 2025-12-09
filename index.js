@@ -25,7 +25,8 @@ app.use(cors({
     //backen local y render
     'http://localhost:3000',
     'http://192.168.100.9:3000',
-    'https://sututeh-server.onrender.com',
+    'https://backend-sututeh.onrender.com',
+    
     'http://192.168.100.9:3001',  // ← AGREGADO
 
     //hostinger fronthen

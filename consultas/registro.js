@@ -26,6 +26,8 @@ const transporter = nodemailer.createTransport({
     },
   });
 
+  
+
   // Cargar plantilla HTML de email
 const templatePath = path.join(__dirname, "../emailTemplates/emailtemplate.html");
 const htmlTemplate = fs.readFileSync(templatePath, "utf8");
@@ -139,12 +141,13 @@ router.post(
       // 7) Enviar el correo con la plantilla
       const html = htmlTemplate.replace("${codigo}", code);
       await transporter.sendMail({
-        from: process.env.EMAIL_USER,
+        from: `"SUTUTEH" <${process.env.EMAIL_USER}>`,
         to: correo_electronico,
         subject: "Tu código de verificación (SUTUTEH)",
         html,
       });
 
+      
       res.json({ message: "Código de verificación enviado exitosamente." });
     } catch (err) {
       console.error("Error en /enviarCodigo:", err);

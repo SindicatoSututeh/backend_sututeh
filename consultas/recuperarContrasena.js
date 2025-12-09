@@ -157,7 +157,7 @@ router.post(
       // 5) Enviar correo con plantilla de recuperación
       const html = recoveryHtmlTemplate.replace("${codigo}", code);
       await transporter.sendMail({
-        from: process.env.EMAIL_USER,
+        from:  `"SUTUTEH" <${process.env.EMAIL_USER}>`,
         to: email,
         subject: "Código de Recuperación de Contraseña - SUTUTEH",
         html,
