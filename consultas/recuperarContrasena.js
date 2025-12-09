@@ -14,22 +14,22 @@ const axios = require("axios");
 
 // Configurar nodemailer
 const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || "smtp.hostinger.com",
-  port: Number(process.env.EMAIL_PORT || 587),
-  secure: false,                // usar TLS en 587 (no SSL)
+  host: process.env.EMAIL_HOST,
+  port: Number(process.env.EMAIL_PORT),
+  secure: false, 
   requireTLS: true,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-  connectionTimeout: 30_000,    // 30s
-  greetingTimeout: 30_000,
-  socketTimeout: 30_000,
+  connectionTimeout: 30000,
+  greetingTimeout: 30000,
+  socketTimeout: 30000,
   tls: {
-    // evitar fallo por certificados en algunos hosts
     rejectUnauthorized: false
   }
 });
+
 
 
 // Cargar plantilla HTML para recuperación de contraseña
@@ -62,6 +62,26 @@ async function isPasswordPwned(password) {
     return false;
   }
 }
+// Endpoint diagnóstico - coloca en recuperarContrasena.js (o en consultas/testEmail.js y haz router.use)
+router.get('/test-email', async (req, res) => {
+  try {
+    // Intenta verificar la conexión SMTP desde Render
+    await transporter.verify();
+    return res.json({ ok: true, message: 'SMTP conectado correctamente (verify passed)' });
+  } catch (err) {
+    console.error('Fallo verify SMTP (diagnóstico):', err);
+    // Devuelve el error completo para que lo copies aquí
+    return res.status(500).json({
+      ok: false,
+      error: {
+        message: err.message,
+        code: err.code,
+        stack: err.stack
+      }
+    });
+  }
+});
+
 
 // 1. Validar reCAPTCHA y verificar existencia del correo
 router.post(
