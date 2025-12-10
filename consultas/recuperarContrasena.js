@@ -14,23 +14,12 @@ const axios = require("axios");
 
 // Configurar nodemailer
 const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: Number(process.env.EMAIL_PORT),
-  secure: false, 
-  requireTLS: true,
+  service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-  connectionTimeout: 60000,
-  greetingTimeout: 30000,
-  socketTimeout: 60000,
-  tls: {
-    rejectUnauthorized: false,
-    minVersion: 'TLSv1.2',
-  }
 });
-
 
 
 // Cargar plantilla HTML para recuperación de contraseña
