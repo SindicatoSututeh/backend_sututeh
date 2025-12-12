@@ -2,25 +2,20 @@
 const express = require('express');
 const pool = require('../bd');
 const router = express.Router();
+const { Resend } = require('resend');
 
 const { body, validationResult } = require("express-validator");
 const fs = require("fs");
 const path = require("path");
-const nodemailer = require("nodemailer");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const axios = require("axios");
 
-// Configurar nodemailer
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
-
+// ====================================
+// CONFIGURACIÓN RESEND
+// ====================================
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Cargar plantilla HTML para recuperación de contraseña
 const recoveryTemplatePath = path.join(__dirname, "../emailTemplates/passwordRecoveryTemplate.html");
@@ -52,28 +47,50 @@ async function isPasswordPwned(password) {
     return false;
   }
 }
-// Endpoint diagnóstico - coloca en recuperarContrasena.js (o en consultas/testEmail.js y haz router.use)
+
+// ====================================
+// ENDPOINT DE PRUEBA
+// ====================================
 router.get('/test-email', async (req, res) => {
   try {
-    // Intenta verificar la conexión SMTP desde Render
-    await transporter.verify();
-    return res.json({ ok: true, message: 'SMTP conectado correctamente (verify passed)' });
+    console.log('🧪 Probando envío con Resend...');
+    
+    const { data, error } = await resend.emails.send({
+      from: 'SUTUTEH <sistema@sututeh.com>',
+      to: 'sindicato.sututeh@gmail.com',
+      subject: 'Test desde Render - Resend funcionando',
+      html: '<h1>✅ Resend funciona!</h1><p>Email enviado correctamente desde Render con tu dominio verificado.</p>',
+    });
+
+    if (error) {
+      console.error('❌ Error de Resend:', error);
+      return res.status(500).json({
+        ok: false,
+        error: error
+      });
+    }
+
+    console.log('✅ Email enviado:', data.id);
+    return res.json({ 
+      ok: true, 
+      message: 'Email enviado correctamente con Resend',
+      id: data.id 
+    });
   } catch (err) {
-    console.error('Fallo verify SMTP (diagnóstico):', err);
-    // Devuelve el error completo para que lo copies aquí
+    console.error('❌ Error:', err);
     return res.status(500).json({
       ok: false,
       error: {
         message: err.message,
-        code: err.code,
         stack: err.stack
       }
     });
   }
 });
 
-
+// ====================================
 // 1. Validar reCAPTCHA y verificar existencia del correo
+// ====================================
 router.post(
   "/verificarCorreoCaptcha",
   [
@@ -128,7 +145,9 @@ router.post(
   }
 );
 
+// ====================================
 // 2. Enviar código de recuperación
+// ====================================
 router.post(
   "/enviarCodigo",
   [
@@ -173,24 +192,35 @@ router.post(
         [hashedToken, userId]
       );
 
-      // 5) Enviar correo con plantilla de recuperación
+      // 5) Enviar correo con Resend
+      console.log(`📧 Enviando código de recuperación a: ${email}`);
+      
       const html = recoveryHtmlTemplate.replace("${codigo}", code);
-      await transporter.sendMail({
-        from:  `"SUTUTEH" <${process.env.EMAIL_USER}>`,
+      
+      const { data, error } = await resend.emails.send({
+        from: 'SUTUTEH <sistema@sututeh.com>',
         to: email,
-        subject: "Código de Recuperación de Contraseña - SUTUTEH",
-        html,
+        subject: 'Código de Recuperación de Contraseña - SUTUTEH',
+        html: html,
       });
 
+      if (error) {
+        console.error('❌ Error de Resend:', error);
+        return res.status(500).json({ error: "Error al enviar el código de recuperación." });
+      }
+
+      console.log(`✅ Email enviado exitosamente. ID: ${data.id}`);
       res.json({ message: "Código de recuperación enviado exitosamente a su correo electrónico." });
     } catch (error) {
-      console.error("Error en /enviarCodigo:", error);
+      console.error("❌ Error en /enviarCodigo:", error);
       res.status(500).json({ error: "Error interno al enviar el código de recuperación." });
     }
   }
 );
 
+// ====================================
 // 3. Verificar código de recuperación
+// ====================================
 router.post(
   "/verificarCodigo",
   [
@@ -249,7 +279,9 @@ router.post(
   }
 );
 
+// ====================================
 // 4. Actualizar contraseña
+// ====================================
 router.post(
   "/actualizarContrasena",
   [

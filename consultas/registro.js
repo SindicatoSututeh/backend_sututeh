@@ -2,45 +2,34 @@
 const express = require('express');
 const pool = require('../bd');
 const router = express.Router();
+const { Resend } = require('resend');
 
 const { body, validationResult } = require("express-validator");
 const fs = require("fs");
 const path = require("path");
-const nodemailer = require("nodemailer");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const axios = require("axios");
 
+// ====================================
+// CONFIGURACIÓN RESEND
+// ====================================
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-
-
-// Configurar nodemailer
-const transporter = nodemailer.createTransport({
-    host: "smtp.hostinger.com",
-    port: 465,
-    secure: true,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-
-  
-
-  // Cargar plantilla HTML de email
+// Cargar plantilla HTML de email
 const templatePath = path.join(__dirname, "../emailTemplates/emailtemplate.html");
 const htmlTemplate = fs.readFileSync(templatePath, "utf8");
 
 // Función para verificar si la contraseña está comprometida usando la API de Have I Been Pwned
 async function isPasswordPwned(password) {
-  // Calcula el hash SHA-1 y conviértelo a mayúsculas
   const sha1Hash = crypto.createHash("sha1")
     .update(password)
     .digest("hex")
     .toUpperCase();
   const prefix = sha1Hash.substring(0, 5);
   const suffix = sha1Hash.substring(5);
+  
   try {
     const response = await axios.get(`https://api.pwnedpasswords.com/range/${prefix}`, {
       headers: { "User-Agent": "SUTUTEH-App" }
@@ -58,6 +47,46 @@ async function isPasswordPwned(password) {
     return false;
   }
 }
+
+// ====================================
+// ENDPOINT DE PRUEBA
+// ====================================
+router.get('/test-email-registro', async (req, res) => {
+  try {
+    console.log('🧪 Probando envío con Resend (Registro)...');
+    
+    const { data, error } = await resend.emails.send({
+      from: 'SUTUTEH <sistema@sututeh.com>',
+      to: 'sindicato.sututeh@gmail.com',
+      subject: 'Test Registro - Resend funcionando',
+      html: '<h1>✅ Resend funciona en Registro!</h1><p>Email enviado correctamente desde el módulo de registro.</p>',
+    });
+
+    if (error) {
+      console.error('❌ Error de Resend:', error);
+      return res.status(500).json({
+        ok: false,
+        error: error
+      });
+    }
+
+    console.log('✅ Email enviado:', data.id);
+    return res.json({ 
+      ok: true, 
+      message: 'Email de prueba enviado correctamente con Resend',
+      id: data.id 
+    });
+  } catch (err) {
+    console.error('❌ Error:', err);
+    return res.status(500).json({
+      ok: false,
+      error: {
+        message: err.message,
+        stack: err.stack
+      }
+    });
+  }
+});
 
 // Endpoint para validar si la contraseña está comprometida
 router.post(
@@ -82,8 +111,9 @@ router.post(
   }
 );
 
-
+// ====================================
 // Enviar código de verificación (OTP)
+// ====================================
 router.post(
   "/enviarCodigo",
   [
@@ -138,27 +168,35 @@ router.post(
         [hashedToken, userId]
       );
 
-      // 7) Enviar el correo con la plantilla
+      // 7) Enviar el correo con Resend
+      console.log(`📧 Enviando código de verificación a: ${correo_electronico}`);
+      
       const html = htmlTemplate.replace("${codigo}", code);
-      await transporter.sendMail({
-        from: `"SUTUTEH" <${process.env.EMAIL_USER}>`,
+      
+      const { data, error } = await resend.emails.send({
+        from: 'SUTUTEH <sistema@sututeh.com>',
         to: correo_electronico,
-        subject: "Tu código de verificación (SUTUTEH)",
-        html,
+        subject: 'Tu código de verificación - SUTUTEH',
+        html: html,
       });
 
-      
+      if (error) {
+        console.error('❌ Error de Resend:', error);
+        return res.status(500).json({ error: "Error al enviar el código de verificación." });
+      }
+
+      console.log(`✅ Email enviado exitosamente. ID: ${data.id}`);
       res.json({ message: "Código de verificación enviado exitosamente." });
     } catch (err) {
-      console.error("Error en /enviarCodigo:", err);
+      console.error("❌ Error en /enviarCodigo:", err);
       res.status(500).json({ error: "Error interno al enviar el código." });
     }
   }
 );
 
-  
-
-  // Validar código OTP
+// ====================================
+// Validar código OTP
+// ====================================
 router.post(
   "/validarCodigo",
   [
@@ -207,7 +245,9 @@ router.post(
   }
 );
 
+// ====================================
 // Actualizar usuario después de verificado
+// ====================================
 router.post(
   "/actualizarUsuario",
   [
@@ -244,7 +284,7 @@ router.post(
       educationalProgram,
       workerNumber,
       educationalLevel,
-       antiguedad,
+      antiguedad,
     } = req.body;
 
     try {
@@ -310,10 +350,9 @@ router.post(
   }
 );
 
-
-
-// Obtener catálogos para el formulario de registro
-
+// ====================================
+// CATÁLOGOS PARA EL FORMULARIO
+// ====================================
 
 // 1. Obtener universidades
 router.get('/universidades', async (req, res) => {
@@ -366,9 +405,10 @@ router.get('/niveles', async (req, res) => {
     res.status(500).json({ error: 'Error al obtener niveles educativos' });
   }
 });
-// 5. Validar existencia de usuario por correo y fecha de nacimiento
-// ✅ SOLUCIÓN: Agregar logs detallados para debuggear la fecha
 
+// ====================================
+// 5. Validar existencia de usuario por correo y fecha de nacimiento
+// ====================================
 router.post('/validarUsuario', [
   body('correo_electronico')
     .trim()
@@ -389,7 +429,7 @@ router.post('/validarUsuario', [
 
   const { correo_electronico, fecha_nacimiento } = req.body;
 
-  // ✅ LOGS DETALLADOS PARA DEBUG
+  // Logs detallados para debug
   console.log('🔍 Validando usuario - Datos recibidos:', {
     correo_original: req.body.correo_electronico,
     correo_procesado: correo_electronico,
@@ -399,7 +439,7 @@ router.post('/validarUsuario', [
   });
 
   try {
-    // ✅ PRIMERA CONSULTA: Ver qué hay exactamente en la BD
+    // Primera consulta: Ver qué hay exactamente en la BD
     console.log('📊 Buscando usuario exacto...');
     const [exactRows] = await pool.query(
       `SELECT 
@@ -416,7 +456,7 @@ router.post('/validarUsuario', [
 
     console.log('📋 Usuarios con este email:', exactRows);
 
-    // ✅ SEGUNDA CONSULTA: Buscar con la fecha específica
+    // Segunda consulta: Buscar con la fecha específica
     console.log('🎯 Buscando con fecha específica...');
     const [rows] = await pool.query(
       `SELECT 
@@ -434,34 +474,10 @@ router.post('/validarUsuario', [
 
     console.log('🎯 Resultado con fecha específica:', rows);
 
-    // ✅ TERCERA CONSULTA: Probar diferentes formatos de fecha
-    console.log('🔄 Probando formatos alternativos...');
-    const [altRows] = await pool.query(
-      `SELECT 
-        a.id, 
-        a.correo_electronico, 
-        a.registro_completado,
-        p.fecha_nacimiento,
-        DATE_FORMAT(p.fecha_nacimiento, '%Y-%m-%d') as fecha_formatted,
-        CASE 
-          WHEN DATE(p.fecha_nacimiento) = ? THEN 'EXACTA'
-          WHEN p.fecha_nacimiento = ? THEN 'DATETIME_EXACTO'
-          WHEN DATE_FORMAT(p.fecha_nacimiento, '%Y-%m-%d') = ? THEN 'FORMAT_MATCH'
-          ELSE 'NO_MATCH'
-        END as comparacion
-       FROM autenticacion_usuarios AS a
-       JOIN perfil_usuarios AS p ON a.id = p.id
-       WHERE a.correo_electronico = ?`,
-      [fecha_nacimiento, fecha_nacimiento, fecha_nacimiento, correo_electronico]
-    );
-
-    console.log('🔄 Pruebas de formato:', altRows);
-
-    // Si no hay resultados con la consulta original, intentar con diferentes aproximaciones
+    // Si no hay resultados, intentar match más flexible
     if (rows.length === 0 && exactRows.length > 0) {
       console.log('⚠️ Usuario existe pero fecha no coincide');
       
-      // Intentar match más flexible
       const [flexibleRows] = await pool.query(
         `SELECT 
           a.id, 
@@ -539,83 +555,29 @@ router.post('/validarUsuario', [
   }
 });
 
-// ✅ FUNCIÓN PARA PROBAR MANUALMENTE EN LA CONSOLA
-async function testSpecificUser() {
-  const email = 'chucho24reyes@gmail.com';
-  const fecha = '2000-02-24';
-  
-  console.log('🧪 Probando usuario específico:');
-  console.log('📧 Email:', email);
-  console.log('📅 Fecha:', fecha);
-  
-  try {
-    // Consulta exacta que estás usando
-    const [rows] = await pool.query(
-      `SELECT 
-        a.id, 
-        a.correo_electronico, 
-        a.registro_completado,
-        p.fecha_nacimiento,
-        DATE_FORMAT(p.fecha_nacimiento, '%Y-%m-%d') as fecha_formatted,
-        DATE(p.fecha_nacimiento) as fecha_date_only
-       FROM autenticacion_usuarios AS a
-       JOIN perfil_usuarios AS p ON a.id = p.id
-       WHERE a.correo_electronico = ?
-         AND DATE(p.fecha_nacimiento) = ?`,
-      [email, fecha]
-    );
-    
-    console.log('✅ Resultado:', rows);
-    
-    if (rows.length === 0) {
-      console.log('❌ No encontrado. Probando sin filtro de fecha...');
-      
-      const [allRows] = await pool.query(
-        `SELECT 
-          a.id, 
-          a.correo_electronico, 
-          a.registro_completado,
-          p.fecha_nacimiento,
-          DATE_FORMAT(p.fecha_nacimiento, '%Y-%m-%d') as fecha_formatted,
-          DATE(p.fecha_nacimiento) as fecha_date_only
-         FROM autenticacion_usuarios AS a
-         JOIN perfil_usuarios AS p ON a.id = p.id
-         WHERE a.correo_electronico = ?`,
-        [email]
-      );
-      
-      console.log('📋 Todos los usuarios con este email:', allRows);
-    }
-    
-  } catch (error) {
-    console.error('❌ Error:', error);
-  }
-}
-
-// ✅ EJECUTAR PARA PROBAR (descomenta la siguiente línea)
-// testSpecificUser();
-
-  // Validar reCAPTCHA
+// ====================================
+// Validar reCAPTCHA
+// ====================================
 router.post("/validarCaptcha", async (req, res) => {
-    const { tokenCaptcha } = req.body;
-    if (!tokenCaptcha) {
-      return res.status(400).json({ error: "Falta el token de reCAPTCHA." });
+  const { tokenCaptcha } = req.body;
+  if (!tokenCaptcha) {
+    return res.status(400).json({ error: "Falta el token de reCAPTCHA." });
+  }
+
+  try {
+    const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+    const verifyURL = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${tokenCaptcha}`;
+
+    const googleRes = await axios.post(verifyURL);
+    if (!googleRes.data.success) {
+      return res.status(400).json({ error: "reCAPTCHA inválido." });
     }
-  
-    try {
-      const secretKey = process.env.RECAPTCHA_SECRET_KEY;
-      const verifyURL = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${tokenCaptcha}`;
-  
-      const googleRes = await axios.post(verifyURL);
-      if (!googleRes.data.success) {
-        return res.status(400).json({ error: "reCAPTCHA inválido." });
-      }
-  
-      res.json({ message: "Captcha válido." });
-    } catch (error) {
-      console.error("Error validando reCAPTCHA:", error);
-      res.status(500).json({ error: "Error al validar reCAPTCHA." });
-    }
-  });
+
+    res.json({ message: "Captcha válido." });
+  } catch (error) {
+    console.error("Error validando reCAPTCHA:", error);
+    res.status(500).json({ error: "Error al validar reCAPTCHA." });
+  }
+});
 
 module.exports = router;
