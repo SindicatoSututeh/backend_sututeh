@@ -3,28 +3,20 @@ const express    = require('express');
 const pool       = require('../bd');
 const fs         = require('fs');
 const path       = require('path');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const { body, validationResult } = require('express-validator');
 const refreshSession = require('../config/refreshSession');
 
-
 const router = express.Router();
 
-// Configurar nodemailer
-const transporter = nodemailer.createTransport({
-  host:   "smtp.hostinger.com",
-  port:   465,
-  secure: true,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+// ====================================
+// CONFIGURACIÓN RESEND
+// ====================================
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // Cargar plantilla HTML de respuesta
 const templatePath = path.join(__dirname, "../emailTemplates/emailrespuesta.htm");
 const htmlTemplate = fs.readFileSync(templatePath, "utf8");
-
 
 // Agregar esta función helper al inicio del archivo, después de las importaciones
 const requireAuth = (req, res, next) => {
@@ -36,10 +28,9 @@ const requireAuth = (req, res, next) => {
   next();
 };
 
-  
-// ELIMINA TODAS las definiciones duplicadas de router.post('/:id/responder')
-// y usa SOLO esta versión corregida:
-
+// ====================================
+// RESPONDER PREGUNTA (con envío de email para NO registrados)
+// ====================================
 router.post(
   '/:id/responder',
   [ body('respuesta').notEmpty().withMessage('La respuesta es requerida') ],
@@ -84,7 +75,7 @@ router.post(
         [mensajeId]
       );
 
-      // 4) Si es usuario NO registrado, enviar email
+      // 4) Si es usuario NO registrado, enviar email con Resend
       if (!mensaje.id_usuario) {
         try {
           // Preparar HTML con los reemplazos
@@ -93,15 +84,26 @@ router.post(
             .replace(/{{pregunta}}/g, mensaje.pregunta || '')
             .replace(/{{respuesta}}/g, respuesta || '');
 
-          // Enviar email
-          const info = await transporter.sendMail({
-            from: `"SUTUTEH" <${process.env.EMAIL_USER}>`,
+          // Enviar email con Resend
+          console.log(`📧 Enviando respuesta a: ${mensaje.correo_electronico}`);
+          
+          const { data, error } = await resend.emails.send({
+            from: 'SUTUTEH <sistema@sututeh.com>',
             to: mensaje.correo_electronico,
-            subject: "Respuesta a tu consulta - SUTUTEH",
-            html: htmlEmail
+            subject: 'Respuesta a tu consulta - SUTUTEH',
+            html: htmlEmail,
           });
 
-          console.log('Email enviado:', info.messageId);
+          if (error) {
+            console.error('❌ Error de Resend:', error);
+            return res.json({ 
+              message: "Respuesta guardada, pero hubo un error al enviar el correo.",
+              emailSent: false,
+              warning: error.message 
+            });
+          }
+
+          console.log(`✅ Email enviado exitosamente. ID: ${data.id}`);
           
           return res.json({ 
             message: "Respuesta guardada y enviada por correo.",
@@ -109,7 +111,7 @@ router.post(
           });
           
         } catch (emailError) {
-          console.error("Error al enviar email:", emailError);
+          console.error("❌ Error al enviar email:", emailError);
           // Aunque falle el email, la respuesta ya se guardó
           return res.json({ 
             message: "Respuesta guardada, pero hubo un error al enviar el correo.",
@@ -135,8 +137,9 @@ router.post(
   }
 );
 
- // POST /api/preguntas
-// Crea una nueva pregunta de usuario no registrado
+// ====================================
+// CREAR PREGUNTA (usuario NO registrado)
+// ====================================
 router.post(
   '/',
   [
@@ -177,16 +180,14 @@ router.post(
     }
   }
 );
- 
 
-/**
- * POST /api/preguntas/registrado
- * Guarda una pregunta de usuario autenticado leyendo su cookie JWT.
- */
+// ====================================
+// CREAR PREGUNTA (usuario registrado)
+// ====================================
 router.post(
   '/registrado',
   refreshSession,
-   requireAuth,
+  requireAuth,
   [ body('mensaje').notEmpty().withMessage('El mensaje es requerido') ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -240,24 +241,21 @@ router.post(
   }
 );
 
-  
-
-/**
- * POST /api/preguntas/:id/responder-registrado
- * Solo para usuarios autenticados (agremiados). No envía email.
- */
+// ====================================
+// RESPONDER PREGUNTA (usuario registrado)
+// ====================================
 router.post(
   '/:id/responder-registrado',
   refreshSession,
-   requireAuth,                            // refresca y valida la cookie JWT
-  [ body('respuesta').notEmpty() ],          // valida que haya texto
+  requireAuth,
+  [ body('respuesta').notEmpty() ],
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty())
       return res.status(400).json({ errors: errors.array() });
 
     const mensajeId = req.params.id;
-    const usuarioId = req.user.sub;           // ID del agremiado
+    const usuarioId = req.user.sub;
 
     try {
       // 1) Obtener el mensaje y asegurarnos de que sea de este agremiado
@@ -298,11 +296,9 @@ router.post(
   }
 );
 
-
-/**
- * GET /api/preguntas
- * Consulta todas las preguntas junto con sus respuestas
- */
+// ====================================
+// CONSULTAR TODAS LAS PREGUNTAS
+// ====================================
 router.get('/', async (req, res) => {
   try {
     // 1) Traer todas las preguntas
@@ -350,11 +346,9 @@ router.get('/', async (req, res) => {
   }
 });
 
-/**
- * POST /api/preguntas/:id/responder-admin
- * Para uso en Thunder Client o panel admin, sin cookie.
- * Inserta la respuesta en la BD y marca el mensaje como 'respondido'.
- */
+// ====================================
+// RESPONDER PREGUNTA (admin)
+// ====================================
 router.post(
   '/:id/responder-admin',
   [ body('respuesta').notEmpty().withMessage('La respuesta es requerida') ],
@@ -400,12 +394,9 @@ router.post(
   }
 );
 
-
-
-/**
- * DELETE /api/preguntas/:id
- * Elimina una pregunta y, por cascada, sus respuestas.
- */
+// ====================================
+// ELIMINAR PREGUNTA
+// ====================================
 router.delete('/:id', async (req, res) => {
   const mensajeId = req.params.id;
   try {
@@ -419,25 +410,25 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({ error: "Error interno al eliminar la pregunta." });
   }
 });
-/**
- * GET /api/preguntas/usuario
- * Devuelve solo las preguntas (y sus respuestas) del usuario logueado.
- */
+
+// ====================================
+// CONSULTAR PREGUNTAS DEL USUARIO LOGUEADO
+// ====================================
 router.get(
   '/usuario',
   refreshSession,
-   requireAuth,
+  requireAuth,
   async (req, res) => {
     const usuarioId = req.user.sub;
     try {
       // 1) Traer las preguntas de este usuario
-    const [mensajes] = await pool.query(
+      const [mensajes] = await pool.query(
         `SELECT 
            id, mensaje AS question, estado,
            DATE_FORMAT(creado_en, '%Y-%m-%d %H:%i') AS date
          FROM mensajes_contacto
          WHERE id_usuario = ?
-         ORDER BY creado_en ASC`,      // ← ASC para que primero vengan las más antiguas
+         ORDER BY creado_en ASC`,
         [usuarioId]
       );
 
@@ -466,6 +457,5 @@ router.get(
     }
   }
 );
-
 
 module.exports = router;
